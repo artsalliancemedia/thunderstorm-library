@@ -83,9 +83,6 @@ def init_app(
 
     def _setup_logger():
         def do_setup_logging(**kwargs):
-            stream_handler = ts_stream_handler(log_filter)
-            json_handler = ts_json_handler('celery', ts_service, log_filter) if add_json_handler else None
-
             celery.utils.log.task_logger = logger
             celery.utils.log.worker_logger = logger
 
