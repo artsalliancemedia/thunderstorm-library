@@ -65,7 +65,7 @@ def get_celery_request_id():
 
 
 def init_app(
-    celery_app: celery.Celery, init_ts_logger: bool = False, add_json_handler: bool = False
+    celery_app: celery.Celery, init_ts_logger: bool = False, add_json_handler: bool = True
 ):
     ts_service = celery_app.conf['TS_SERVICE_NAME']
     ts_service = ts_service.replace('-', '_')
@@ -86,20 +86,8 @@ def init_app(
             stream_handler = ts_stream_handler(log_filter)
             json_handler = ts_json_handler('celery', ts_service, log_filter) if add_json_handler else None
 
-            del celery.utils.log.task_logger.handlers[:]
-            del celery.utils.log.worker_logger.handlers[:]
-            celery.utils.log.task_logger.propagate = True
-            celery.utils.log.worker_logger.propagate = True
-            celery.utils.log.task_logger.name = ts_service
-            celery.utils.log.worker_logger.name = ts_service
-            celery.utils.log.task_logger.setLevel(log_level)
-            celery.utils.log.worker_logger.setLevel(log_level)
-            if add_json_handler:
-                celery.utils.log.task_logger.addHandler(json_handler)
-                celery.utils.log.worker_logger.addHandler(json_handler)
-            else:
-                celery.utils.log.task_logger.addHandler(stream_handler)
-                celery.utils.log.worker_logger.addHandler(stream_handler)
+            celery.utils.log.task_logger = logger
+            celery.utils.log.worker_logger = logger
 
         return do_setup_logging
     setup_logging.connect(_setup_logger(), weak=False)
