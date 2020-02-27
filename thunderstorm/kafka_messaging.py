@@ -3,6 +3,7 @@ import collections
 import logging
 import zlib
 import json
+import marshmallow  # TODO: @will-norris backwards compat - remove
 from typing import Any
 
 import faust
@@ -19,8 +20,6 @@ from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
 from thunderstorm.logging import get_log_level, ts_json_handler, ts_stream_handler
 
-
-import marshmallow  # TODO: @will-norris backwards compat - remove
 MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
 
 # Keep topic names and schemas together
@@ -86,12 +85,15 @@ class TSKafka(faust.App):
         kwargs['broker_request_timeout'] = 90.0
 
         ts_service = kwargs.get('ts_service_name')
+        self._ts_service = ts_service
         if not ts_service:
             logging.warning('ts_service_name is not given, logger will not be unified.')
         else:
             ts_service = ts_service.replace('-', '_')
+            self._ts_service = ts_service
 
             ts_log_level = kwargs.get('ts_log_level')
+
             if not ts_log_level:
                 ts_log_level = 'INFO'
                 logging.warning('ts_log_level is not given, set to INFO as default.')
@@ -110,15 +112,14 @@ class TSKafka(faust.App):
                         'propagate': True,
                         'level': log_level
                     }
-                },
-                'disable_existing_loggers': True
+                }
             }
 
             log_filter = KafkaRequestIDFilter()
             add_json_handler = kwargs.get('add_json_handler', False)
             if add_json_handler:
                 kwargs['loghandlers'] = [
-                    ts_json_handler('kafka', ts_service, log_filter)
+                    ts_json_handler(log_filter)
                 ]
             else:
                 kwargs['loghandlers'] = [ts_stream_handler(log_filter)]
@@ -222,6 +223,8 @@ class TSKafka(faust.App):
 
         try:
             self.kafka_producer.send(event.topic, value=serialized, key=key)  # send takes raw bytes
+            logger = logging.getLogger(self._ts_service)
+            logger.info(f'sent ts_event:{event.topic}, message:{data}')
             if hasattr(self.monitor, 'client'):
                 self.monitor.client.incr(f'stream.{topic_name}.messages.sent')
         except MessageSizeTooLargeError as msex:
@@ -299,10 +302,11 @@ class TSKafka(faust.App):
                             logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
                             raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
 
-                    logging.debug(f'received ts_event on {topic}')
-
                     try:
+                        logger = logging.getLogger(self._ts_service)
+                        logger.info(f'received ts_event:{topic}, message:{deserialized_data}')
                         yield await func(deserialized_data)
+                        logger.info(f'finish consumer ts_event:{topic}')
                     except catch_exc as ex:
                         if hasattr(self.monitor, 'client'):
                             self.monitor.client.incr(f'stream.{topic_name}.execution.errors')
@@ -321,7 +325,6 @@ class TSKafka(faust.App):
             return self.agent(topic, name=f'thunderstorm.messaging.{ts_task_name(topic)}')(event_handler)
 
         return decorator
-
 
     @classmethod
     def _compress(cls, data, schema):
