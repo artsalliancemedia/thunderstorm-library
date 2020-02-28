@@ -49,7 +49,7 @@ def get_flask_request_id():
 
 
 def init_app(
-    flask_app: Flask, add_json_handler: bool = False
+        flask_app: Flask, add_json_handler: bool = True
 ):
     """Initialise logging request handler on a Flask app
     This handler adds a Flask access log
@@ -59,21 +59,15 @@ def init_app(
     log_level = get_log_level(flask_app.config['TS_LOG_LEVEL'])
 
     log_filter = FlaskRequestIDFilter()
-    stream_handler = ts_stream_handler(log_filter)
 
     del flask_app.logger.handlers[:]
-    flask_app.logger.name = ts_service
     flask_app.logger.setLevel(log_level)
 
-    logger = setup_ts_logger(ts_service, log_level, log_filter)
-    if add_json_handler:
-        json_handler = ts_json_handler(
-            'flask', ts_service, log_filter
-        )
-        logger.addHandler(json_handler)
-        flask_app.logger.addHandler(json_handler)
-    else:
-        flask_app.logger.addHandler(stream_handler)
+    logger = setup_ts_logger(ts_service, log_level)
+    handler = ts_json_handler(log_filter) if add_json_handler else ts_stream_handler(log_filter)
+
+    logger.addHandler(handler)
+    flask_app.logger.addHandler(handler)
 
     @flask_app.before_request
     def before_request():

@@ -16,7 +16,6 @@ from test import models
 import test.fixtures
 
 
-
 @pytest.fixture
 def TestSchema():
     class TestSchema(Schema):
@@ -164,3 +163,12 @@ def kafka_app():
 @pytest.fixture
 def TestEvent(TestSchema):
     return Event(topic='test-topic', schema=TestSchema)
+
+
+@pytest.fixture
+def app_config():
+    return {
+        'TS_SERVICE_NAME': 'foo-service',
+        'TS_LOG_LEVEL': 'INFO',
+        'DEBUG': False
+    }

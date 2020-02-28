@@ -67,11 +67,11 @@ def get_request_id():
     return gen_trace_id()
 
 
-def ts_json_handler(ts_log_type, ts_service, ts_filter):
+def ts_json_handler(ts_filter):
     """Create an json handler"""
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(JSONFormatter(
-        '%(levelname)s %(message)s', ts_log_type=ts_log_type, ts_service=ts_service
+        '%(levelname)s %(message)s',
     ))
     stream_handler.addFilter(ts_filter)
 
@@ -88,18 +88,11 @@ def ts_stream_handler(ts_filter):
     return stream_handler
 
 
-def setup_ts_logger(ts_service, log_level, log_filter, json_handler):
+def setup_ts_logger(ts_service, log_level):
     logger = logging.getLogger(ts_service)
     logger.propagate = True
 
     logger.setLevel(log_level)
-    if json_handler:
-        logger.addHandler(json_handler)
-    else:
-        logger.addHandler(
-            ts_stream_handler(log_filter)
-        )
-
     return logger
 
 
@@ -110,28 +103,17 @@ class JSONFormatter(BaseJSONFormatter):
     """
 
     def __init__(self, *args, **kwargs):
-        self._ts_log_type = kwargs.pop('ts_log_type', 'unknown')
-        self._ts_service = kwargs.pop('ts_service', 'unknown')
         super().__init__(*args, **kwargs)
 
     def add_fields(self, log_record, record, message_dict):
         super().add_fields(log_record, record, message_dict)
         log_record = self._add_required_fields(log_record, record)
-        log_record = self._add_grouping_fields(log_record, record)
         log_record = self._add_request_id(log_record, record)
         log_record = self._add_timestamp(log_record, record)
 
     def _add_required_fields(self, log_record, record):
         required_fields = ['name', 'levelname', 'pathname', 'lineno']
         log_record.update({name: getattr(record, name) for name in required_fields})
-
-        return log_record
-
-    def _add_grouping_fields(self, log_record, record):
-        log_record.update({
-            'service': self._ts_service,
-            'log_type': self._ts_log_type,
-        })
 
         return log_record
 

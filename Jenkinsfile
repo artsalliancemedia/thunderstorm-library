@@ -64,19 +64,15 @@ node('aam-identity-prodcd') {
         if (env.BRANCH_NAME == 'master') {
 
             stage('Create Github Release') {
-                if (is_release == 0) {
-                  // GITHUB_TOKEN is a global set in jenkins
-                      withEnv([
-                          "GITHUB_TOKEN=${env.GITHUB_TOKEN}",
-                      ]) {
-                          // create distribution
-                          sh 'sudo chmod -R 777 thunderstorm_library.egg-info/'
-                          sh "make dist"
-                          sh "./script/release.sh '${user}' '${repo}'"
-                      }
-                } else {
-                    echo 'No [release] commit -- skipping'
-                }
+                // GITHUB_TOKEN is a global set in jenkins
+                    withEnv([
+                        "GITHUB_TOKEN=${env.GITHUB_TOKEN}",
+                    ]) {
+                        // create distribution
+                        sh 'sudo chmod -R 777 thunderstorm_library.egg-info/'
+                        sh "make dist"
+                        sh "./script/release.sh '${user}' '${repo}'"
+                    }
             }
 
             stage("Changelog") {
@@ -89,6 +85,15 @@ node('aam-identity-prodcd') {
                 echo "### Changelog ###"
                 echo "${description}"
                 echo "### Changelog ###"
+            }
+        }
+        if (env.BRANCH_NAME.matches("feature(.*)")){
+            stage('release dev') {
+                  withEnv([
+                      "GITHUB_TOKEN=${env.GITHUB_TOKEN}",
+                  ]) {
+                    sh './release-dev.sh'
+                }
             }
         }
 
