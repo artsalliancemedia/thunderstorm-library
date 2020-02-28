@@ -116,7 +116,7 @@ class TSKafka(faust.App):
             }
 
             log_filter = KafkaRequestIDFilter()
-            add_json_handler = kwargs.get('add_json_handler', False)
+            add_json_handler = kwargs.get('add_json_handler', True)
             if add_json_handler:
                 kwargs['loghandlers'] = [
                     ts_json_handler(log_filter)
