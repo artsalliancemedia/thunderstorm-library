@@ -4,17 +4,19 @@ import logging
 import zlib
 import json
 import marshmallow  # TODO: @will-norris backwards compat - remove
-from typing import Any
-
-import faust
 import sentry_sdk
+
+
 from faust.sensors.monitor import Monitor
 from faust.sensors.statsd import StatsdMonitor
 from faust.types import StreamT, TP, Message
+from faust import current_event, App
 from kafka import KafkaProducer
 from kafka.errors import MessageSizeTooLargeError
 from marshmallow import Schema, fields
 from marshmallow.exceptions import ValidationError
+from typing import Any
+
 from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
@@ -68,7 +70,7 @@ class TSStatsdMonitor(StatsdMonitor):
         self.client.gauge(f'read_offset.{topic}.{tp.partition}', offset)
 
 
-class TSKafka(faust.App):
+class TSKafka(App):
     """
     Wrapper class for combining features of faust and Kafka-Python. The broker
     argument can be passed as a string of the form 'kafka-1:9092,kafka-2:9092'
@@ -281,52 +283,55 @@ class TSKafka(faust.App):
             async def event_handler(stream):
                 # stream handling done in here, no need to do it inside the func
                 async for message in stream:
-                    ts_message = message.pop('data') or message
-                    compression = message.pop('compressed', False)
-                    if compression:
-                        ts_message = zlib.decompress(base64.b64decode(ts_message.encode()))
-                        load_func = schema.loads
-                    else:
-                        load_func = schema.load
-                    if MARSHMALLOW_2:
-                        deserialized_data, errors = load_func(ts_message)
-                        if errors:
-                            if hasattr(self.monitor, 'client'):
-                                self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                            error_msg = f'Inbound schema validation error for event {topic}'
-                            logging.error(error_msg, extra={'errors': errors, 'data': ts_message})
-                            raise SchemaError(error_msg, errors=errors, data=ts_message)
-                    else:
-                        try:
-                            deserialized_data = load_func(ts_message)
-                        except ValidationError as vex:
-                            if hasattr(self.monitor, 'client'):
-                                self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                            error_msg = f'Inbound schema validation error for event {topic}'
-                            logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
-                            raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
-
+                    logger = logging.getLogger(self._ts_service)
                     try:
-                        logger = logging.getLogger(self._ts_service)
-                        msg = f'received ts_event:{event.topic} '
-                        msg = msg + f',message:{deserialized_data}' if log_payload else msg
+                        event_meta = current_event().message
+                        logger.info(f'received event:{topic}, meta: {event_meta}')
+                        ts_message = message.pop('data') or message
+                        compression = message.pop('compressed', False)
+                        if compression:
+                            ts_message = zlib.decompress(base64.b64decode(ts_message.encode()))
+                            load_func = schema.loads
+                        else:
+                            load_func = schema.load
+                        if MARSHMALLOW_2:
+                            deserialized_data, errors = load_func(ts_message)
+                            if errors:
+                                if hasattr(self.monitor, 'client'):
+                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
+                                error_msg = f'Inbound schema validation error for event {topic}'
+                                logging.error(error_msg, extra={'errors': errors, 'data': ts_message})
+                                raise SchemaError(error_msg, errors=errors, data=ts_message)
+                        else:
+                            try:
+                                deserialized_data = load_func(ts_message)
+                            except ValidationError as vex:
+                                if hasattr(self.monitor, 'client'):
+                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
+                                error_msg = f'Inbound schema validation error for event {topic}'
+                                logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
+                                raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
+
+                        msg_meta = f'ts_event:{event.topic}, meta:{event_meta}'
+                        msg = f'received {msg_meta}' + (f',message:{deserialized_data}' if log_payload else '')
                         logger.info(msg)
                         yield await func(deserialized_data)
-                        logger.info(f'finish consumer ts_event:{topic}')
+                        logger.info(f'finished consumer {msg_meta}')
                     except catch_exc as ex:
                         if hasattr(self.monitor, 'client'):
                             self.monitor.client.incr(f'stream.{topic_name}.execution.errors')
-                        logging.error(ex)
+                        logging.error(ex, exc_info=ex)
                         if self.sentry:
                             sentry_sdk.capture_exception(ex)
                         yield
                     except Exception as ex:  # catch all exceptions to avoid worker failure and restart
                         if hasattr(self.monitor, 'client'):
                             self.monitor.client.incr(f'stream.{topic_name}.critical.errors')
-                        logging.critical(ex)
+                        logging.critical(ex, exc_info=ex)
                         if self.sentry:
                             sentry_sdk.capture_exception(ex)
-                        yield
+                        raise ex
+                        # yield
 
             return self.agent(topic, name=f'thunderstorm.messaging.{ts_task_name(topic)}')(event_handler)
 

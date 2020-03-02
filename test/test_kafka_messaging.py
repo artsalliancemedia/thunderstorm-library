@@ -152,22 +152,23 @@ async def test_TSKafka_ts_event_does_not_raise_if_catch_exc_set_and_logs_error(k
     assert m_logging.error.called
 
 
-@pytest.mark.asyncio
-async def test_TSKafka_ts_event_does_not_raise_if_catch_exc_unset_and_logs_critical(kafka_app, TestEvent):
-    # arrange
-    message = {'data': {'int_1': 3, 'int_2': 6}}
-
-    # decorated agent
-    @kafka_app.ts_event(TestEvent)
-    async def test_function(message):
-        raise ValueError()
-
-    # act
-    async with test_function.test_context() as agent:
-        with patch('thunderstorm.kafka_messaging.logging') as m_logging:
-            await agent.put(message.copy())
-
-    assert m_logging.critical.called
+# it should raise all exceptions
+# @pytest.mark.asyncio
+# async def test_TSKafka_ts_event_does_not_raise_if_catch_exc_unset_and_logs_critical(kafka_app, TestEvent):
+#     # arrange
+#     message = {'data': {'int_1': 3, 'int_2': 6}}
+#
+#     # decorated agent
+#     @kafka_app.ts_event(TestEvent)
+#     async def test_function(message):
+#         raise ValueError()
+#
+#     # act
+#     async with test_function.test_context() as agent:
+#         with patch('thunderstorm.kafka_messaging.logging') as m_logging:
+#             await agent.put(message.copy())
+#
+#     assert m_logging.critical.called
 
 
 @pytest.mark.asyncio
