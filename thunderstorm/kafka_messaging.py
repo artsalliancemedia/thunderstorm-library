@@ -107,24 +107,9 @@ class TSKafka(App):
                 log_level = 'INFO'
                 logging.warning(f'{log_level} {vex}')
 
-            kwargs['logging_config'] = {
-                'version': 1,
-                'loggers': {
-                    ts_service: {
-                        'propagate': True,
-                        'level': log_level
-                    }
-                }
-            }
-
             log_filter = KafkaRequestIDFilter()
-            add_json_handler = kwargs.get('add_json_handler', True)
-            if add_json_handler:
-                kwargs['loghandlers'] = [
-                    ts_json_handler(log_filter)
-                ]
-            else:
-                kwargs['loghandlers'] = [ts_stream_handler(log_filter)]
+            logger = logging.getLogger(ts_service)
+            logger.addFilter(log_filter)
 
         # sentry config
         dsn, environment, release = [
