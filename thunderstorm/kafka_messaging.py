@@ -20,7 +20,7 @@ from typing import Any
 from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
-from thunderstorm.logging import get_log_level, ts_json_handler, ts_stream_handler
+from thunderstorm.logging import get_log_level
 
 MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
 
