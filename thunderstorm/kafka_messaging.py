@@ -4,21 +4,23 @@ import logging
 import zlib
 import json
 import marshmallow  # TODO: @will-norris backwards compat - remove
-from typing import Any
-
-import faust
 import sentry_sdk
+
+
 from faust.sensors.monitor import Monitor
 from faust.sensors.statsd import StatsdMonitor
 from faust.types import StreamT, TP, Message
+from faust import current_event, App
 from kafka import KafkaProducer
 from kafka.errors import MessageSizeTooLargeError
 from marshmallow import Schema, fields
 from marshmallow.exceptions import ValidationError
+from typing import Any
+
 from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
-from thunderstorm.logging import get_log_level, ts_json_handler, ts_stream_handler
+from thunderstorm.logging import get_log_level
 
 MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
 
@@ -68,7 +70,7 @@ class TSStatsdMonitor(StatsdMonitor):
         self.client.gauge(f'read_offset.{topic}.{tp.partition}', offset)
 
 
-class TSKafka(faust.App):
+class TSKafka(App):
     """
     Wrapper class for combining features of faust and Kafka-Python. The broker
     argument can be passed as a string of the form 'kafka-1:9092,kafka-2:9092'
@@ -105,24 +107,9 @@ class TSKafka(faust.App):
                 log_level = 'INFO'
                 logging.warning(f'{log_level} {vex}')
 
-            kwargs['logging_config'] = {
-                'version': 1,
-                'loggers': {
-                    ts_service: {
-                        'propagate': True,
-                        'level': log_level
-                    }
-                }
-            }
-
             log_filter = KafkaRequestIDFilter()
-            add_json_handler = kwargs.get('add_json_handler', True)
-            if add_json_handler:
-                kwargs['loghandlers'] = [
-                    ts_json_handler(log_filter)
-                ]
-            else:
-                kwargs['loghandlers'] = [ts_stream_handler(log_filter)]
+            logger = logging.getLogger(ts_service)
+            logger.addFilter(log_filter)
 
         # sentry config
         dsn, environment, release = [
@@ -201,7 +188,7 @@ class TSKafka(faust.App):
 
         return data.encode('utf-8')
 
-    def send_ts_event(self, data, event, key=None, compression=False):
+    def send_ts_event(self, data, event, key=None, compression=False, log_payload=True):
         """
         Send a message to a kafka broker. We only connect to kafka when first
         sending a message.
@@ -211,6 +198,8 @@ class TSKafka(faust.App):
             data (dict): Message you want to send via the message bus
             key (str): Key to use when routing messages to a partition - It is
             compression (boolean): Whether or not to compress a message
+            log_payload (boolean): switch of log the whole message
+
             recommended you use the resource identifier so all messages relating
             to a particular resource get routed to the same partition. A value of
             None will cause messages to randomly sent to different partitions
@@ -224,7 +213,9 @@ class TSKafka(faust.App):
         try:
             self.kafka_producer.send(event.topic, value=serialized, key=key)  # send takes raw bytes
             logger = logging.getLogger(self._ts_service)
-            logger.info(f'sent ts_event:{event.topic}, message:{data}')
+            msg = f'sent ts_event:{event.topic} '
+            msg = msg + f',message:{data}' if log_payload else msg
+            logger.info(msg)
             if hasattr(self.monitor, 'client'):
                 self.monitor.client.incr(f'stream.{topic_name}.messages.sent')
         except MessageSizeTooLargeError as msex:
@@ -251,7 +242,7 @@ class TSKafka(faust.App):
         except Exception as ex:
             raise TSKafkaConnectException(f'Exception while connecting to Kafka: {ex}')
 
-    def ts_event(self, event, catch_exc=(), *args, **kwargs):
+    def ts_event(self, event, catch_exc=(), log_payload=True, *args, **kwargs):
         """Decorator for Thunderstorm messaging events
 
         Examples:
@@ -264,7 +255,7 @@ class TSKafka(faust.App):
             schema (marshmallow.Schema): The schema class expected by this task
             catch_exc (tuple): Tuple of exception classes which can be
                 logged as errors and then ignored
-            compression (boolean): Whether or not to compress a message
+            log_payload (boolean): Whether or not log the payload received
 
         Returns:
             A decorator function
@@ -277,50 +268,55 @@ class TSKafka(faust.App):
             async def event_handler(stream):
                 # stream handling done in here, no need to do it inside the func
                 async for message in stream:
-                    ts_message = message.pop('data') or message
-                    compression = message.pop('compressed', False)
-                    if compression:
-                        ts_message = zlib.decompress(base64.b64decode(ts_message.encode()))
-                        load_func = schema.loads
-                    else:
-                        load_func = schema.load
-                    if MARSHMALLOW_2:
-                        deserialized_data, errors = load_func(ts_message)
-                        if errors:
-                            if hasattr(self.monitor, 'client'):
-                                self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                            error_msg = f'Inbound schema validation error for event {topic}'
-                            logging.error(error_msg, extra={'errors': errors, 'data': ts_message})
-                            raise SchemaError(error_msg, errors=errors, data=ts_message)
-                    else:
-                        try:
-                            deserialized_data = load_func(ts_message)
-                        except ValidationError as vex:
-                            if hasattr(self.monitor, 'client'):
-                                self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                            error_msg = f'Inbound schema validation error for event {topic}'
-                            logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
-                            raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
-
+                    logger = logging.getLogger(self._ts_service)
                     try:
-                        logger = logging.getLogger(self._ts_service)
-                        logger.info(f'received ts_event:{topic}, message:{deserialized_data}')
+                        event_meta = current_event().message
+                        logger.info(f'received event:{topic}, meta: {event_meta}')
+                        ts_message = message.pop('data') or message
+                        compression = message.pop('compressed', False)
+                        if compression:
+                            ts_message = zlib.decompress(base64.b64decode(ts_message.encode()))
+                            load_func = schema.loads
+                        else:
+                            load_func = schema.load
+                        if MARSHMALLOW_2:
+                            deserialized_data, errors = load_func(ts_message)
+                            if errors:
+                                if hasattr(self.monitor, 'client'):
+                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
+                                error_msg = f'Inbound schema validation error for event {topic}'
+                                logging.error(error_msg, extra={'errors': errors, 'data': ts_message})
+                                raise SchemaError(error_msg, errors=errors, data=ts_message)
+                        else:
+                            try:
+                                deserialized_data = load_func(ts_message)
+                            except ValidationError as vex:
+                                if hasattr(self.monitor, 'client'):
+                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
+                                error_msg = f'Inbound schema validation error for event {topic}'
+                                logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
+                                raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
+
+                        msg_meta = f'ts_event:{event.topic}, meta:{event_meta}'
+                        msg = f'received {msg_meta}' + (f',message:{deserialized_data}' if log_payload else '')
+                        logger.info(msg)
                         yield await func(deserialized_data)
-                        logger.info(f'finish consumer ts_event:{topic}')
+                        logger.info(f'finished consumer {msg_meta}')
                     except catch_exc as ex:
                         if hasattr(self.monitor, 'client'):
                             self.monitor.client.incr(f'stream.{topic_name}.execution.errors')
-                        logging.error(ex)
+                        logging.error(ex, exc_info=ex)
                         if self.sentry:
                             sentry_sdk.capture_exception(ex)
                         yield
                     except Exception as ex:  # catch all exceptions to avoid worker failure and restart
                         if hasattr(self.monitor, 'client'):
                             self.monitor.client.incr(f'stream.{topic_name}.critical.errors')
-                        logging.critical(ex)
+                        logging.critical(ex, exc_info=ex)
                         if self.sentry:
                             sentry_sdk.capture_exception(ex)
-                        yield
+                        raise ex
+                        # yield
 
             return self.agent(topic, name=f'thunderstorm.messaging.{ts_task_name(topic)}')(event_handler)
 
