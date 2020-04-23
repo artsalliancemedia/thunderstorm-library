@@ -87,7 +87,7 @@ node('aam-identity-prodcd') {
                 echo "### Changelog ###"
             }
         }
-        if (env.BRANCH_NAME.matches("feature(.*)")){
+        if (env.BRANCH_NAME.matches("release(.*)")){
             stage('release dev') {
                   withEnv([
                       "GITHUB_TOKEN=${env.GITHUB_TOKEN}",
