@@ -73,20 +73,20 @@ node('aam-identity-prodcd') {
                         sh "grelease owner=${user} repo=${repo} filename='dist/thunderstorm-library-${version}.tar.gz' tag=${tag}"
                     }
                 }
+
+                stage("Changelog") {
+                    description = gitChangelog returnType: 'STRING',
+                                gitHub: [api: 'https://api.github.com/repos/artsalliancemedia/thunderstorm-library', issuePattern: '', token: env.GITHUB_TOKEN],
+                                from: [type: 'REF', value: 'master'],
+                                to: [type: 'REF', value: env.BRANCH_NAME],
+                                template: prTemplate()
+                    echo "### Changelog ###"
+                    echo "${description}"
+                    echo "### Changelog ###"
+                }
             }
         }
 
-        stage("Changelog") {
-            description = gitChangelog returnType: 'STRING',
-              gitHub: [api: 'https://api.github.com/repos/artsalliancemedia/thunderstorm-library', issuePattern: '', token: env.GITHUB_TOKEN],
-              from: [type: 'REF', value: 'master'],
-              to: [type: 'REF', value: env.BRANCH_NAME],
-              template: prTemplate()
-
-            echo "### Changelog ###"
-            echo "${description}"
-            echo "### Changelog ###"
-        }
     } catch (err) {
         junit 'results-*.xml'
         error 'Thunderstorm library build failed ${err}'
