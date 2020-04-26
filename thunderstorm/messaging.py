@@ -1,4 +1,5 @@
 """Thunderstorm messaging helpers"""
+from functools import wraps
 import collections
 
 from marshmallow.exceptions import ValidationError
@@ -25,6 +26,34 @@ class TSMessage(collections.abc.Mapping):
 
     def __iter__(self):
         return iter(self.data)
+
+
+def ts_shared_task(*options, **kwoptions):
+    """ wrapper function for celery.shared_task with statsd timer to calculate task time
+
+    use as celery.shared_task
+
+    Example:
+        @ts_shared_task()
+        def add(a, b):
+            pass
+
+        @ts_shared_task(bind=True)
+        def mul(self, a, b):
+            pass
+
+    """
+    def decorator(f):
+
+        @wraps(f)
+        def _timing_wrapper(*args, **kwargs):
+            key = "consumer.rabbitmq.{}.time".format(f.__name__)
+            with statsd.timer(key):
+                return f(*args, **kwargs)
+
+        return shared_task(*options, **kwoptions)(_timing_wrapper)
+
+    return decorator
 
 
 def ts_task(event_name, schema, bind=False, **options):
@@ -79,7 +108,7 @@ def ts_task(event_name, schema, bind=False, **options):
             try:
                 deserialized_data = schema.load(ts_message)
             except ValidationError as vex:
-                statsd.incr('tasks.{}.ts_task.errors.schema'.format(task_name))
+                statsd.incr('errors.read_celery_schema.{}'.format(task_name))
                 error_msg = 'inbound schema validation error for event {}'.format(event_name)
                 logger.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
                 raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
@@ -125,26 +154,19 @@ def send_ts_task(event_name, schema, data, **kwargs):
     try:
         data = schema.dump(data)
     except ValidationError as vex:
-        error_msg = 'Error serializing queue message data'
-        raise SchemaError(error_msg, errors=vex.messages, data=data)
-
-    try:
-        schema.load(data)
-    except ValidationError as vex:
-        statsd.incr('tasks.{}.send_ts_task.errors.schema'.format(task_name))
-        error_msg = 'Outbound schema validation error for event {}'.format(event_name)  # noqa
+        error_msg = 'Outbound schema validation error for event {}'.format(event_name)
         logger.error(error_msg, extra={'errors': vex.messages, 'data': data})
-
+        statsd.incr('errors.write_celery_schema.{}'.format(task_name))
         raise SchemaError(error_msg, errors=vex.messages, data=data)
-    else:
-        logger.info('send_ts_task on {}'.format(event_name))
-        event = {
-            'data': data
-        }
-        return current_app.send_task(
-            task_name,
-            (event,),
-            exchange='ts.messaging',
-            routing_key=event_name,
-            **kwargs
-        )
+
+    logger.info('send_ts_task on {}'.format(event_name))
+    event = {
+        'data': data
+    }
+    return current_app.send_task(
+        task_name,
+        (event,),
+        exchange='ts.messaging',
+        routing_key=event_name,
+        **kwargs
+    )
