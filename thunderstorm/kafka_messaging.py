@@ -2,8 +2,7 @@ import base64
 import collections
 import logging
 import zlib
-import marshmallow
-import sentry_sdk
+from typing import Any
 
 from faust.sensors.monitor import Monitor
 from faust.sensors.statsd import StatsdMonitor
@@ -13,7 +12,7 @@ from kafka import KafkaProducer
 from kafka.errors import MessageSizeTooLargeError
 from marshmallow import Schema, fields
 from marshmallow.exceptions import ValidationError
-from typing import Any
+import sentry_sdk
 
 from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
