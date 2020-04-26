@@ -2,8 +2,6 @@
 
 CODACY_PROJECT_TOKEN?=fake
 PYTHON_VERSION?=default
-# only set if running a backwards compatibility test with marshmallow 2.x.x
-COMPAT?=
 REGISTRY?=886366864302.dkr.ecr.eu-west-1.amazonaws.com
 
 VERSION_SUFFIX?=""
@@ -16,10 +14,6 @@ install:
 	@echo "# --pre allows pre releases"
 	pip install --pre -e ".[kafka]"
 	pip install -r requirements-dev.txt
-
-compat:
-	pip uninstall -y marshmallow
-	pip install marshmallow==2.18
 
 lint:
 	flake8 thunderstorm test

@@ -2,8 +2,7 @@ import base64
 import collections
 import logging
 import zlib
-import json
-import marshmallow  # TODO: @will-norris backwards compat - remove
+import marshmallow
 import sentry_sdk
 
 from faust.sensors.monitor import Monitor
@@ -20,8 +19,6 @@ from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
 from thunderstorm.logging import get_log_level, setup_ts_logger
-
-MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
 
 # Keep topic names and schemas together
 Event = collections.namedtuple('Event', ['topic', 'schema'])
@@ -153,40 +150,21 @@ class TSKafka(App):
             compressed = fields.Boolean(required=False, default=False)
 
         schema = TSMessageSchema()
-
-        # Marshmallow 2 compatibility - remove when no longer needed
         trace_id = get_request_id()
         dumps_data = {'data': data, 'trace_id': trace_id, "compressed": compression}
-        if MARSHMALLOW_2:
-            serialized_data, errors = schema.dumps(dumps_data)
+        try:
+            data = schema.dumps(dumps_data)
+        except ValidationError as vex:
+            error_msg = 'Error serializing queue message data'
+            logging.error(error_msg, extra={'errors': vex.messages, 'data': data, 'trace_id': trace_id})
+            raise SchemaError(error_msg, errors=vex.messages, data=data)
 
-            if errors:
-                error_msg = 'Error serializing queue message data.'
-                logging.error(error_msg, extra={'errors': errors, 'data': data, 'trace_id': trace_id})
-                raise SchemaError(error_msg, errors=errors, data=data)
-            else:
-                data = serialized_data
-
-            errors = schema.loads(data).errors
-
-            if errors:
-                error_msg = f'Outbound schema validation error for event {event.topic}'
-                logging.error(error_msg, extra={'errors': errors, 'data': data})
-                raise SchemaError(error_msg, errors=errors, data=data)
-        else:
-            try:
-                data = schema.dumps(dumps_data)
-            except ValidationError as vex:
-                error_msg = 'Error serializing queue message data'
-                logging.error(error_msg, extra={'errors': vex.messages, 'data': data, 'trace_id': trace_id})
-                raise SchemaError(error_msg, errors=vex.messages, data=data)
-
-            try:
-                schema.loads(data)
-            except ValidationError as vex:
-                error_msg = f'Outbound schema validation error for event {event.topic}'
-                logging.error(error_msg, extra={'errors': vex.messages, 'data': data})
-                raise SchemaError(error_msg, errors=vex.messages, data=data)
+        try:
+            schema.loads(data)
+        except ValidationError as vex:
+            error_msg = f'Outbound schema validation error for event {event.topic}'
+            logging.error(error_msg, extra={'errors': vex.messages, 'data': data})
+            raise SchemaError(error_msg, errors=vex.messages, data=data)
 
         return data.encode('utf-8')
 
@@ -281,23 +259,15 @@ class TSKafka(App):
                             load_func = schema.loads
                         else:
                             load_func = schema.load
-                        if MARSHMALLOW_2:
-                            deserialized_data, errors = load_func(ts_message)
-                            if errors:
-                                if hasattr(self.monitor, 'client'):
-                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                                error_msg = f'Inbound schema validation error for event {topic}'
-                                logging.error(error_msg, extra={'errors': errors, 'data': ts_message})
-                                raise SchemaError(error_msg, errors=errors, data=ts_message)
-                        else:
-                            try:
-                                deserialized_data = load_func(ts_message)
-                            except ValidationError as vex:
-                                if hasattr(self.monitor, 'client'):
-                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                                error_msg = f'Inbound schema validation error for event {topic}'
-                                logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
-                                raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
+
+                        try:
+                            deserialized_data = load_func(ts_message)
+                        except ValidationError as vex:
+                            if hasattr(self.monitor, 'client'):
+                                self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
+                            error_msg = f'Inbound schema validation error for event {topic}'
+                            logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
+                            raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
 
                         msg_meta = f'ts_event:{event.topic}, meta:{event_meta}'
                         msg = f'received {msg_meta}' + (f',message:{deserialized_data}' if log_payload else '')
@@ -326,8 +296,5 @@ class TSKafka(App):
 
     @classmethod
     def _compress(cls, data, schema):
-        if MARSHMALLOW_2:
-            compress_data = zlib.compress(json.dumps(data).encode())
-        else:
-            compress_data = zlib.compress(schema().dumps(data).encode())
+        compress_data = zlib.compress(schema().dumps(data).encode())
         return base64.b64encode(compress_data).decode()
