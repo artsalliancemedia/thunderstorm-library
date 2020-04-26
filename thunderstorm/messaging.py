@@ -1,7 +1,6 @@
 """Thunderstorm messaging helpers"""
 import collections
 
-import marshmallow
 from marshmallow.exceptions import ValidationError
 from celery.utils.log import get_task_logger
 from celery import current_app, shared_task
