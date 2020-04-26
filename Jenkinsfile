@@ -1,24 +1,15 @@
 #!/usr/bin/env groovy
 
+def registry = '886366864302.dkr.ecr.eu-west-1.amazonaws.com'
 def user = 'artsalliancemedia'
 def repo = 'thunderstorm-library'
 
 node('aam-identity-prodcd') {
     properties([
         [
-            $class: 'HudsonNotificationProperty',
-            endpoints: [[
-                event: 'all',
-                format: 'JSON',
-                loglines: 0,
-                protocol: 'HTTP',
-                timeout: 30000,
-                url: 'https://webhooks.gitter.im/e/953b1e47e601cbf09ff8']]
-        ],
-        [
             $class: 'GithubProjectProperty',
             displayName: 'TS Lib',
-            projectUrlStr: 'https://github.com/artsalliancemedia/thunderstorm-library/'
+            projectUrlStr: "https://github.com/${user}/${repo}/"
         ]
     ])
 
@@ -29,7 +20,6 @@ node('aam-identity-prodcd') {
     }
 
     try {
-        def registry = '886366864302.dkr.ecr.eu-west-1.amazonaws.com'
         // CODACY_PROJECT_TS_LIB_TOKEN is a global set in jenkins
         stage('Test') {
             withEnv([
@@ -57,46 +47,46 @@ node('aam-identity-prodcd') {
             }
         }
 
-        // determine if release should be pushed: the most recent commit must contain string "[release]"
-        def is_release = sh (script: 'git log --oneline --no-merges -1 | grep -q \'\\[release\\]\'', returnStatus: true)
+        // master or release/* branch
+        def is_release = isRelease()
 
-        // master branch builds are pushed to Github
-        if (env.BRANCH_NAME == 'master') {
-
-            stage('Create Github Release') {
-                // GITHUB_TOKEN is a global set in jenkins
+        if (is_release) {
+            def version = getVersion()
+            def tag = "v${version}"
+            stage('Create Git Tag') {
+                withEnv([
+                    "GITHUB_TOKEN=${env.GITHUB_TOKEN}"
+                ]) {
+                    sh "git remote set-url origin git@github.com:${user}/${repo}.git"
+                    sh "git tag -f ${tag}"
+                    sh "git push --tags"
+                }
+            }
+            // master branch builds are pushed to Github
+            if (env.BRANCH_NAME == 'master') {
+                stage('Create Github Release') {
                     withEnv([
                         "GITHUB_TOKEN=${env.GITHUB_TOKEN}",
                     ]) {
-                        // create distribution
                         sh 'sudo chmod -R 777 thunderstorm_library.egg-info/'
                         sh "make dist"
-                        sh "./script/release.sh '${user}' '${repo}'"
+                        sh "grelease owner=${user} repo=${repo} filename='dist/thunderstorm-library-${version}.tar.gz' tag=${tag}"
                     }
-            }
-
-            stage("Changelog") {
-                description = gitChangelog returnType: 'STRING',
-                  gitHub: [api: 'https://api.github.com/repos/artsalliancemedia/thunderstorm-library', issuePattern: '', token: env.GITHUB_TOKEN],
-                  from: [type: 'REF', value: 'master'],
-                  to: [type: 'REF', value: env.BRANCH_NAME],
-                  template: prTemplate()
-
-                echo "### Changelog ###"
-                echo "${description}"
-                echo "### Changelog ###"
-            }
-        }
-        if (env.BRANCH_NAME.matches("release(.*)")){
-            stage('release dev') {
-                  withEnv([
-                      "GITHUB_TOKEN=${env.GITHUB_TOKEN}",
-                  ]) {
-                    sh './release-dev.sh'
                 }
             }
         }
 
+        stage("Changelog") {
+            description = gitChangelog returnType: 'STRING',
+              gitHub: [api: 'https://api.github.com/repos/artsalliancemedia/thunderstorm-library', issuePattern: '', token: env.GITHUB_TOKEN],
+              from: [type: 'REF', value: 'master'],
+              to: [type: 'REF', value: env.BRANCH_NAME],
+              template: prTemplate()
+
+            echo "### Changelog ###"
+            echo "${description}"
+            echo "### Changelog ###"
+        }
     } catch (err) {
         junit 'results-*.xml'
         error 'Thunderstorm library build failed ${err}'
@@ -114,7 +104,18 @@ def getDockerComposeProject() {
 }
 
 def prTemplate() {
-  def template = readFile 'CHANGELOG.md'
-  // don't forget to trim or you'll get a newline in the string
-  return template.trim()
+  def tp = readFile 'CHANGELOG.md'
+  return tp.trim()
+}
+
+def isRelease() {
+    if (env.BRANCH_NAME == "master")
+        return true
+    return env.BRANCH_NAME.startsWith("release/")
+}
+
+def getVersion() {
+    if (env.BRANCH_NAME == "master")
+        return sh(script: "make version", returnStdout: true).trim()
+    return sh(script: "VERSION_SUFFIX=b${env.BUILD_NUMBER} make version", returnStdout: true).trim()
 }

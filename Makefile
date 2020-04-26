@@ -5,7 +5,12 @@ PYTHON_VERSION?=default
 # only set if running a backwards compatibility test with marshmallow 2.x.x
 COMPAT?=
 REGISTRY?=886366864302.dkr.ecr.eu-west-1.amazonaws.com
-VERSION?=0.0.0
+
+VERSION_SUFFIX?=""
+_VERSION?=$$(python setup.py --version)${VERSION_SUFFIX}
+
+version:
+	@echo ${_VERSION}
 
 install:
 	@echo "# --pre allows pre releases"
