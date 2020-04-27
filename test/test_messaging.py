@@ -6,7 +6,7 @@ from marshmallow import Schema, fields
 import pytest
 
 from thunderstorm.messaging import (
-    ts_task_name, ts_task, send_ts_task, SchemaError
+    ts_task_name, ts_shared_task, ts_task, send_ts_task, SchemaError
 )
 
 
@@ -187,3 +187,31 @@ def test_send_ts_task_fails_on_many_when_expecting_one(celery):
 
     # assert
     assert not mock_send_task.called
+
+
+@patch('thunderstorm.messaging.shared_task')
+def test_ts_shared_task(mock_shared_task):
+    # arrange
+    @ts_shared_task()
+    def add(a, b):
+        pass
+
+    # act
+    add(1, 2)
+
+    # assert
+    assert mock_shared_task.called
+
+
+@patch('thunderstorm.messaging.shared_task')
+def test_ts_shared_task_with_options(mock_shared_task):
+    # arrange
+    @ts_shared_task(bind=True)
+    def add(self, a, b):
+        pass
+
+    # act
+    add.delay(1, 2)
+
+    # assert
+    mock_shared_task.assert_called_with(bind=True)

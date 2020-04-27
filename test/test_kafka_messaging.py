@@ -1,7 +1,7 @@
 import json
-import pytest
 from unittest.mock import patch, MagicMock
 
+import pytest
 from faust import App as faust_app
 
 from thunderstorm.kafka_messaging import (
@@ -152,25 +152,6 @@ async def test_TSKafka_ts_event_does_not_raise_if_catch_exc_set_and_logs_error(k
     assert m_logging.error.called
 
 
-# it should raise all exceptions
-# @pytest.mark.asyncio
-# async def test_TSKafka_ts_event_does_not_raise_if_catch_exc_unset_and_logs_critical(kafka_app, TestEvent):
-#     # arrange
-#     message = {'data': {'int_1': 3, 'int_2': 6}}
-#
-#     # decorated agent
-#     @kafka_app.ts_event(TestEvent)
-#     async def test_function(message):
-#         raise ValueError()
-#
-#     # act
-#     async with test_function.test_context() as agent:
-#         with patch('thunderstorm.kafka_messaging.logging') as m_logging:
-#             await agent.put(message.copy())
-#
-#     assert m_logging.critical.called
-
-
 @pytest.mark.asyncio
 async def test_TSKafka_ts_event_increases_metric_count_and_raises_SchemaError_for_bad_data(kafka_app, TestEvent):
     # arrange
@@ -184,11 +165,12 @@ async def test_TSKafka_ts_event_increases_metric_count_and_raises_SchemaError_fo
         return message
 
     # act
-    with pytest.raises(SchemaError):
-        async with test_function.test_context() as agent:
-            await agent.put(message.copy())
+    with patch("thunderstorm.kafka_messaging.statsd") as mock_statsd:
+        with pytest.raises(SchemaError):
+            async with test_function.test_context() as agent:
+                await agent.put(message.copy())
 
-    assert kafka_app.monitor.client.incr.called
+    assert mock_statsd.incr.called
 
 
 @pytest.mark.asyncio
