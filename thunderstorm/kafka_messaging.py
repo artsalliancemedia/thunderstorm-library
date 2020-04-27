@@ -6,7 +6,6 @@ import json
 import marshmallow  # TODO: @will-norris backwards compat - remove
 import sentry_sdk
 
-
 from faust.sensors.monitor import Monitor
 from faust.sensors.statsd import StatsdMonitor
 from faust.types import StreamT, TP, Message
@@ -20,7 +19,7 @@ from typing import Any
 from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
-from thunderstorm.logging import get_log_level
+from thunderstorm.logging import get_log_level, setup_ts_logger
 
 MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
 
@@ -101,11 +100,14 @@ class TSKafka(App):
                 logging.warning('ts_log_level is not given, set to INFO as default.')
 
             try:
-                get_log_level(ts_log_level)   # for verify
+                get_log_level(ts_log_level)  # for verify
                 log_level = ts_log_level.upper()
             except ValueError as vex:
                 log_level = 'INFO'
                 logging.warning(f'{log_level} {vex}')
+
+            if kwargs.get('init_ts_logger'):
+                setup_ts_logger(ts_service, log_level)
 
             log_filter = KafkaRequestIDFilter()
             logger = logging.getLogger(ts_service)

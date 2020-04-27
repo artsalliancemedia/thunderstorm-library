@@ -14,7 +14,7 @@ from celery.signals import setup_logging
 from celery._state import get_current_task
 
 from . import (
-    _register_id_getter, get_log_level, get_request_id,
+    _register_id_getter, setup_ts_logger, get_log_level, get_request_id,
     ts_json_handler, ts_stream_handler, TS_REQUEST_ID
 )
 
@@ -70,6 +70,10 @@ def init_app(
     ts_service = celery_app.conf['TS_SERVICE_NAME']
     ts_service = ts_service.replace('-', '_')
     log_level = get_log_level(celery_app.conf['TS_LOG_LEVEL'])
+
+    if init_ts_logger:
+        setup_ts_logger(ts_service, log_level)
+
     logger = logging.getLogger(ts_service)
     log_filter = CeleryTaskFilter()
     logger.addFilter(log_filter)
