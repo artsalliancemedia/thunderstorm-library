@@ -154,6 +154,12 @@ def send_ts_task(event_name, schema, data, **kwargs):
     try:
         data = schema.dump(data)
     except ValidationError as vex:
+        error_msg = 'Error serializing queue message data'
+        raise SchemaError(error_msg, errors=vex.messages, data=data)
+
+    try:
+        schema.load(data)
+    except ValidationError as vex:
         error_msg = 'Outbound schema validation error for event {}'.format(event_name)
         logger.error(error_msg, extra={'errors': vex.messages, 'data': data})
         statsd.incr('errors.write_celery_schema.{}'.format(task_name))
