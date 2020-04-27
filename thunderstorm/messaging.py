@@ -43,13 +43,12 @@ def ts_shared_task(*options, **kwoptions):
             pass
 
     """
-    def decorator(f):
+    def decorator(func):
 
-        @wraps(f)
+        @wraps(func)
         def _timing_wrapper(*args, **kwargs):
-            key = "consumer.rabbitmq.{}.time".format(f.__name__)
-            with statsd.timer(key):
-                return f(*args, **kwargs)
+            with statsd.timer(f"consumer.celery.{func.__name__}.time"):
+                return func(*args, **kwargs)
 
         return shared_task(*options, **kwoptions)(_timing_wrapper)
 
@@ -108,7 +107,7 @@ def ts_task(event_name, schema, bind=False, **options):
             try:
                 deserialized_data = schema.load(ts_message)
             except ValidationError as vex:
-                statsd.incr('errors.read_celery_schema.{}'.format(task_name))
+                statsd.incr(f'counter.parse.{task_name}.error')
                 error_msg = 'inbound schema validation error for event {}'.format(event_name)
                 logger.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
                 raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
@@ -116,7 +115,8 @@ def ts_task(event_name, schema, bind=False, **options):
                 logger.info('received ts_task on {}'.format(event_name))
                 ts_message.data = deserialized_data
                 # passing task_func instead of passing self - @will-norris
-                return task_func(self, ts_message) if bind else task_func(ts_message)
+                with statsd.timer(f"consumer.celery.{event_name}.time"):
+                    return task_func(self, ts_message) if bind else task_func(ts_message)
 
         return shared_task(bind=bind, name=task_name, **options)(task_handler)
 
@@ -162,7 +162,7 @@ def send_ts_task(event_name, schema, data, **kwargs):
     except ValidationError as vex:
         error_msg = 'Outbound schema validation error for event {}'.format(event_name)
         logger.error(error_msg, extra={'errors': vex.messages, 'data': data})
-        statsd.incr('errors.write_celery_schema.{}'.format(task_name))
+        statsd.incr(f'counter.kafka_write.{task_name}.schema_error')
         raise SchemaError(error_msg, errors=vex.messages, data=data)
 
     logger.info('send_ts_task on {}'.format(event_name))
