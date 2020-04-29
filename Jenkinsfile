@@ -82,6 +82,8 @@ node('aam-identity-prodcd') {
             }
         }
 
+        currentBuild.displayName = "thunderstorm-library #${currentBuild.number} with version ${getVersion()}"
+
     } catch (err) {
         junit 'results-*.xml'
         error 'Thunderstorm library build failed ${err}'
