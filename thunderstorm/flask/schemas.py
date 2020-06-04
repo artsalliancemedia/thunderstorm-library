@@ -1,4 +1,4 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, fields, EXCLUDE
 from marshmallow.validate import Range
 
 from thunderstorm.flask.headers import rewrite_path
@@ -62,3 +62,64 @@ class PaginationSchemaV2(PaginationRequestSchemaV2):
     """
     items = fields.Integer(required=True, dump_only=True, description='Total number of entries')
     total_page = fields.Integer(required=True, dump_only=True, description='Total number of pages')
+
+
+#  ##################### API SPEC 3.0 ###########
+class HTTPRequestSchemaV3(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+
+class HTTPResponseSchemaV3(Schema):
+
+    class Meta:
+        unknown = EXCLUDE
+
+    code = fields.Integer(request=False, default=200, description="The return code")
+    message = fields.String(required=False, default='success', description='The message from API')
+    debug_message = fields.String(required=False, description='The debug message from API, just for dev')
+
+
+# ## PAGINATION ###
+class PaginationSchemaV3(Schema):
+    page = fields.Integer(required=True)
+    limit = fields.Integer(required=True)
+    items = fields.Integer(required=True)
+
+
+class HTTPRequestWithPaginationSchemaV3(HTTPRequestSchemaV3):
+    page = fields.Integer(missing=1, min=1)
+    limit = fields.Integer(missing=100, min=1, max=1000)
+
+
+class HTTPResponseWithPaginationSchemaV3(HTTPResponseSchemaV3):
+    pagination = fields.Nested(PaginationSchemaV3)
+
+
+class ListSplitByComma(fields.List):
+    """
+    Usage:
+
+        data = ListSplitByComma(fields.UUID()) # 用逗号分割的UUID   例如： eca13d46-9c4b-480a-b1f0-b328c550f72f,eca13d46-9c4b-480a-b1f0-b328c550f72f,eca13d46-9c4b-480a-b1f0-b328c550f72f
+        data = ListSplitByComma(Integer) # 用逗号分隔的整型数字 例如: 1,2,3,4
+
+    """
+
+    def _serialize(self, value, attr, obj, **kwargs):
+        result = super()._serialize(value, attr, obj)
+        return ','.join(result)
+
+    def _deserialize(self, value, attr, data, **kwargs):
+        new_value = value.split(',')
+        return super()._deserialize(new_value, attr, data, **kwargs)
+
+
+class SortKeys(ListSplitByComma):
+    def _serialize(self, value, attr, obj, **kwargs):
+        str_array = [f'-{r[0]}' if r[1] == '-' else r[0] for r in value]
+        result = super()._serialize(str_array, attr, obj)
+        return result
+
+    def _deserialize(self, value, attr, data, **kwargs):
+        keys = [k.strip() for k in super()._deserialize(value, attr, data, **kwargs)]
+        return [(s[1:], '-') if s[0] == '-' else (s, '+') for s in keys]
