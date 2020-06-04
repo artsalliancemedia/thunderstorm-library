@@ -115,6 +115,10 @@ class ListSplitByComma(fields.List):
 
 
 class SortKeys(ListSplitByComma):
+    """
+        Usage:
+         test/flask/test_schema.py
+    """
     def _serialize(self, value, attr, obj, **kwargs):
         str_array = [f'-{r[0]}' if r[1] == '-' else r[0] for r in value]
         result = super()._serialize(str_array, attr, obj)
