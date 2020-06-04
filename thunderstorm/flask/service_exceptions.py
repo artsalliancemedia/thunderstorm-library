@@ -7,11 +7,6 @@ class ServiceException(AppException):
         self.message = message
 
 
-class CheckFeatureDependenceFail(ServiceException):
-    def __init__(self, message, code=400):
-        super().__init__(code, message)
-
-
 class ResourceNotFound(ServiceException):
     def __init__(self, message, code=404):
         super().__init__(code, message)
