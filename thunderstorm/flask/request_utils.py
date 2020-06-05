@@ -194,3 +194,53 @@ def paginate(query, page, page_size, url_path='', ceiling=None, version=1):
     pagination_info = get_pagination_info(page, page_size, num_records, url_path, ceiling=ceiling, version=version)
 
     return query.offset(start).limit(page_size), pagination_info
+
+
+# pagination V3 #
+def _get_pagination_info_v3(page, page_size, num_records):
+    """
+    Utility function for creating a dict of pagination information.
+
+    Args:
+        page (int): Requested page number of results
+        page_size (int): Number of results to display per page
+        num_records (int): Total number of records in the db for the given query
+
+
+    Returns:
+        dict: Dict containing pagination information. The structure of this
+            dict should match the PaginationSchema in schemas.py
+    """
+    # if num_records is equal ceiling assume there is more
+
+    pagination_info = {
+        'items': num_records,
+        'page': page,
+        'limit': page_size,
+    }
+    return pagination_info
+
+
+def make_paginated_response_v3(query, page, page_size):
+    """
+    Take a sqlalchemy query and paginate it based on the args provided.
+
+    Args:
+        query (sqlalchemy Query object): Query you wish to paginate
+        page (int): Page number of the results page to return
+        page_size (int): Number of results to return per page
+
+    Returns:
+        dict: The structure of which conforms to the thunderstorm API
+            spec response structure
+
+    Raises:
+        SerializationError: If serialization of the pagination info fails for any reason
+    """
+    start = (page - 1) * page_size
+    num_records = query.count()
+
+    pagination_info = _get_pagination_info_v3(page, page_size, num_records)
+    query = query.offset(start).limit(page_size)
+
+    return query, pagination_info
