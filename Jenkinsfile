@@ -114,5 +114,6 @@ def isRelease() {
 def getVersion() {
     if (env.BRANCH_NAME == "master")
         return sh(script: "make version", returnStdout: true).trim()
-    return sh(script: "VERSION_SUFFIX=b${env.BUILD_NUMBER} make version", returnStdout: true).trim()
+    git_tag_suffix = sh(script: "GITHUB_TOKEN=${env.GITHUB_TOKEN} git rev-parse --short HEAD", returnStdout: true).trim()
+    return sh(script: "VERSION_SUFFIX=${git_tag_suffix} make version", returnStdout: true).trim()
 }
