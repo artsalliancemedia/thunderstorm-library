@@ -120,8 +120,8 @@ class JSONFormatter(BaseJSONFormatter):
     def _add_request_id(self, log_record, record):
         if getattr(record, 'traceId', None):
             log_record['request_id'] = record.traceId
-            log_record.setdefault('data', {})
-            log_record['data']['request_id'] = record.traceId
+            # log_record.setdefault('data', {})
+            # log_record['data']['request_id'] = record.traceId
 
         return log_record
 
