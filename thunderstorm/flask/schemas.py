@@ -110,6 +110,8 @@ class ListSplitByComma(fields.List):
         return ','.join(result)
 
     def _deserialize(self, value, attr, data, **kwargs):
+        if not value:
+            return []
         new_value = value.split(',')
         return super()._deserialize(new_value, attr, data, **kwargs)
 
