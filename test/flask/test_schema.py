@@ -133,3 +133,19 @@ def test_SortKey(param, result, dump_resp):
     # assert
     assert key['sort'] == result
     assert resp == param if not dump_resp else dump_resp
+
+
+@pytest.mark.parametrize('param, result', [
+    ({'uuids': None}, None),
+    ({'uuids': ''}, []),
+])
+def test_ListSplitByComma(param, result):
+    # arrange
+    class MySchema(schema.HTTPRequestSchemaV3):
+        uuids = schema.ListSplitByComma(fields.UUID, required=False, allow_none=True)
+
+    # act
+    param = MySchema().load(param)
+
+    # assert
+    assert param['uuids'] == result
