@@ -1,11 +1,25 @@
 import math
-from urllib.parse import urlparse
 
 from flask import request
 from marshmallow.exceptions import ValidationError
+from requests import Session
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib2.util.retry import Retry
+from urllib.parse import urlparse
 
 from thunderstorm.flask.exceptions import DeserializationError, SerializationError
 from thunderstorm.flask.schemas import PaginationRequestSchema, PaginationRequestSchemaV2
+
+retry_strategy = Retry(
+    total=2,
+    backoff_factor=0,
+    status_forcelist=[428, 500, 502, 503, 504],
+    method_whitelist=["HEAD", "GET", "OPTIONS"]
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+request_session = Session()
+request_session.mount("https://", adapter)
+request_session.mount("http://", adapter)
 
 
 def make_paginated_response(query, url_path, schema, page, page_size, ceiling=None):
