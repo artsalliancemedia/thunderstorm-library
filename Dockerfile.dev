@@ -7,4 +7,6 @@ COPY . .
 RUN pip install --pre -e ".[kafka]"
 RUN pip install -r requirements-dev.txt
 
+RUN useradd -ms /bin/bash aam && chown -R aam /var/app && chmod 755 /var/app
+USER aam
 CMD "pytest -s test"

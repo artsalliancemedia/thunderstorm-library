@@ -20,7 +20,6 @@ node('aam-identity-prodcd') {
     }
 
     try {
-        // CODACY_PROJECT_TS_LIB_TOKEN is a global set in jenkins
         stage('Test') {
             withEnv([
               "REGISTRY=${registry}"
@@ -29,12 +28,12 @@ node('aam-identity-prodcd') {
               sh 'sleep 5'
               parallel 'python36': {
                 withEnv(["COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}36"]) {
-                  sh "docker-compose run -e CODACY_PROJECT_TOKEN=${env.CODACY_PROJECT_TS_LIB_TOKEN} -e PYTHON_VERSION=36 python36 make install test codacy"
+                  sh "docker-compose run -e PYTHON_VERSION=36 python36 make install test"
                   junit 'results-36.xml'
                 }
               }, 'python37': {
                 withEnv(["COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}37"]) {
-                  sh "docker-compose run -e CODACY_PROJECT_TOKEN=${env.CODACY_PROJECT_TS_LIB_TOKEN} -e PYTHON_VERSION=37 python37 make install test codacy"
+                  sh "docker-compose run -e PYTHON_VERSION=37 python37 make install test"
                   junit 'results-37.xml'
                 }
               }

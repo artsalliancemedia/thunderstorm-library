@@ -33,5 +33,3 @@ clean:
 dist: clean
 	python setup.py sdist
 
-codacy:
-	python-codacy-coverage -r coverage-${PYTHON_VERSION}${COMPAT}.xml
