@@ -1,14 +1,25 @@
 import math
-from urllib.parse import urlparse
 
 from flask import request
 from marshmallow.exceptions import ValidationError
+from requests import Session
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+from urllib.parse import urlparse
 
 from thunderstorm.flask.exceptions import DeserializationError, SerializationError
 from thunderstorm.flask.schemas import PaginationRequestSchema, PaginationRequestSchemaV2
 
-import marshmallow  # TODO: @will-norris backwards compat - remove
-MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
+_retry_strategy = Retry(
+    total=2,
+    backoff_factor=0,
+    status_forcelist=[428, 500, 502, 503, 504],
+    method_whitelist=["HEAD", "GET", "OPTIONS"]
+)
+_adapter = HTTPAdapter(max_retries=_retry_strategy)
+request_session = Session()
+request_session.mount("https://", _adapter)
+request_session.mount("http://", _adapter)
 
 
 def make_paginated_response(query, url_path, schema, page, page_size, ceiling=None):
@@ -38,14 +49,10 @@ def make_paginated_response(query, url_path, schema, page, page_size, ceiling=No
     pagination_info = get_pagination_info(page, page_size, num_records, url_path, ceiling=ceiling)
     query = query.offset(start).limit(page_size)
 
-    # TODO: @will-norris backwards compat - remove
-    if MARSHMALLOW_2:
-        return schema().dump({'data': query, **pagination_info}).data
-    else:
-        try:
-            return schema().dump({'data': query, **pagination_info})
-        except ValidationError as vex:
-            raise SerializationError(('Error serializing pagination info: {}'.format(vex.messages)))
+    try:
+        return schema().dump({'data': query, **pagination_info})
+    except ValidationError as vex:
+        raise SerializationError(('Error serializing pagination info: {}'.format(vex.messages)))
 
 
 def get_request_pagination(params=None, exc=DeserializationError, version=1):
@@ -71,17 +78,10 @@ def get_request_pagination(params=None, exc=DeserializationError, version=1):
 
     params = request.args
 
-    # TODO: @will-norris backwards compat - remove
-    if MARSHMALLOW_2:
-        data, errors = schema().load(params)
-        if errors:
-            raise exc('Error deserializing pagination options: {}'.format(errors))
-        return data
-    else:
-        try:
-            return schema().load(params)
-        except ValidationError as vex:
-            raise exc('Error deserializing pagination options: {}'.format(vex.messages))
+    try:
+        return schema().load(params)
+    except ValidationError as vex:
+        raise exc('Error deserializing pagination options: {}'.format(vex.messages))
 
 
 def get_request_filters(schema, exc):
@@ -95,17 +95,10 @@ def get_request_filters(schema, exc):
     Raises:
         exc: If there are any marshmallow validation errors deserializing request.args
     """
-    # TODO: @will-norris backwards compat - remove
-    if MARSHMALLOW_2:
-        data, errors = schema().load(request.args)
-        if errors:
-            raise exc('Error deserializing filters provided: {}'.format(errors))
-        return data
-    else:
-        try:
-            return schema().load(request.args)
-        except ValidationError as vex:
-            raise exc('Error deserializing filters provided: {}'.format(vex.messages))
+    try:
+        return schema().load(request.args)
+    except ValidationError as vex:
+        raise exc('Error deserializing filters provided: {}'.format(vex.messages))
 
 
 def _strip_query(url_path):
@@ -215,3 +208,53 @@ def paginate(query, page, page_size, url_path='', ceiling=None, version=1):
     pagination_info = get_pagination_info(page, page_size, num_records, url_path, ceiling=ceiling, version=version)
 
     return query.offset(start).limit(page_size), pagination_info
+
+
+# pagination V3 #
+def _get_pagination_info_v3(page, page_size, num_records):
+    """
+    Utility function for creating a dict of pagination information.
+
+    Args:
+        page (int): Requested page number of results
+        page_size (int): Number of results to display per page
+        num_records (int): Total number of records in the db for the given query
+
+
+    Returns:
+        dict: Dict containing pagination information. The structure of this
+            dict should match the PaginationSchema in schemas.py
+    """
+    # if num_records is equal ceiling assume there is more
+
+    pagination_info = {
+        'items': num_records,
+        'page': page,
+        'limit': page_size,
+    }
+    return pagination_info
+
+
+def make_paginated_response_v3(query, page, page_size):
+    """
+    Take a sqlalchemy query and paginate it based on the args provided.
+
+    Args:
+        query (sqlalchemy Query object): Query you wish to paginate
+        page (int): Page number of the results page to return
+        page_size (int): Number of results to return per page
+
+    Returns:
+        dict: The structure of which conforms to the thunderstorm API
+            spec response structure
+
+    Raises:
+        SerializationError: If serialization of the pagination info fails for any reason
+    """
+    start = (page - 1) * page_size
+    num_records = query.count()
+
+    pagination_info = _get_pagination_info_v3(page, page_size, num_records)
+    query = query.offset(start).limit(page_size)
+
+    return query, pagination_info

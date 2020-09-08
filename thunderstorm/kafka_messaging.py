@@ -2,26 +2,20 @@ import base64
 import collections
 import logging
 import zlib
-import json
-import marshmallow  # TODO: @will-norris backwards compat - remove
-import sentry_sdk
+from typing import Any
 
-from faust.sensors.monitor import Monitor
-from faust.sensors.statsd import StatsdMonitor
-from faust.types import StreamT, TP, Message
 from faust import current_event, App
 from kafka import KafkaProducer
 from kafka.errors import MessageSizeTooLargeError
 from marshmallow import Schema, fields
 from marshmallow.exceptions import ValidationError
-from typing import Any
+from statsd.defaults.env import statsd
+import sentry_sdk
 
 from thunderstorm.logging import get_request_id
 from thunderstorm.shared import SchemaError, ts_task_name
 from thunderstorm.logging.kafka import KafkaRequestIDFilter
 from thunderstorm.logging import get_log_level, setup_ts_logger
-
-MARSHMALLOW_2 = int(marshmallow.__version__[0]) < 3
 
 # Keep topic names and schemas together
 Event = collections.namedtuple('Event', ['topic', 'schema'])
@@ -39,7 +33,8 @@ class TSKafkaConnectException(Exception):
     pass
 
 
-class TSStatsdMonitor(StatsdMonitor):
+class TSStatsdMonitor:
+
     def __init__(
         self,
         host: str = 'localhost',
@@ -48,25 +43,8 @@ class TSStatsdMonitor(StatsdMonitor):
         rate: float = 1.0,
         **kwargs: Any
     ) -> None:
-        super().__init__(host=host, port=port, prefix=f'{prefix}.faust', rate=rate, **kwargs)
-
-    def _stream_label(self, stream: StreamT) -> str:
-        """
-        Enhance original _stream_label function
-        it converts "topic_pos-week.fetch" -> "pos-week_fetch"
-        """
-        label = super()._stream_label(stream=stream)
-        return label.replace('topic_', '').replace('.', '_')
-
-    def on_message_in(self, tp: TP, offset: int, message: Message) -> None:
-        """Call before message is delegated to streams."""
-        super(Monitor, self).on_message_in(tp, offset, message)
-
-        topic = tp.topic.replace('.', '_')
-        self.client.incr('messages_received', rate=self.rate)
-        self.client.incr('messages_active', rate=self.rate)
-        self.client.incr(f'topic.{topic}.messages_received', rate=self.rate)
-        self.client.gauge(f'read_offset.{topic}.{tp.partition}', offset)
+        # not use the default monitor
+        pass
 
 
 class TSKafka(App):
@@ -119,6 +97,8 @@ class TSKafka(App):
         ]
         self.sentry = self._init_sentry(dsn, environment, release)
 
+        # remove default monitor
+        kwargs['monitor'] = None
         super().__init__(*args, **kwargs)
 
     def _init_sentry(self, dsn, environment=None, release=None):
@@ -153,40 +133,21 @@ class TSKafka(App):
             compressed = fields.Boolean(required=False, default=False)
 
         schema = TSMessageSchema()
-
-        # Marshmallow 2 compatibility - remove when no longer needed
         trace_id = get_request_id()
         dumps_data = {'data': data, 'trace_id': trace_id, "compressed": compression}
-        if MARSHMALLOW_2:
-            serialized_data, errors = schema.dumps(dumps_data)
+        try:
+            data = schema.dumps(dumps_data)
+        except ValidationError as vex:
+            error_msg = 'Error serializing queue message data'
+            logging.error(error_msg, extra={'errors': vex.messages, 'data': data, 'trace_id': trace_id})
+            raise SchemaError(error_msg, errors=vex.messages, data=data)
 
-            if errors:
-                error_msg = 'Error serializing queue message data.'
-                logging.error(error_msg, extra={'errors': errors, 'data': data, 'trace_id': trace_id})
-                raise SchemaError(error_msg, errors=errors, data=data)
-            else:
-                data = serialized_data
-
-            errors = schema.loads(data).errors
-
-            if errors:
-                error_msg = f'Outbound schema validation error for event {event.topic}'
-                logging.error(error_msg, extra={'errors': errors, 'data': data})
-                raise SchemaError(error_msg, errors=errors, data=data)
-        else:
-            try:
-                data = schema.dumps(dumps_data)
-            except ValidationError as vex:
-                error_msg = 'Error serializing queue message data'
-                logging.error(error_msg, extra={'errors': vex.messages, 'data': data, 'trace_id': trace_id})
-                raise SchemaError(error_msg, errors=vex.messages, data=data)
-
-            try:
-                schema.loads(data)
-            except ValidationError as vex:
-                error_msg = f'Outbound schema validation error for event {event.topic}'
-                logging.error(error_msg, extra={'errors': vex.messages, 'data': data})
-                raise SchemaError(error_msg, errors=vex.messages, data=data)
+        try:
+            schema.loads(data)
+        except ValidationError as vex:
+            error_msg = f'Outbound schema validation error for event {event.topic}'
+            logging.error(error_msg, extra={'errors': vex.messages, 'data': data})
+            raise SchemaError(error_msg, errors=vex.messages, data=data)
 
         return data.encode('utf-8')
 
@@ -218,15 +179,16 @@ class TSKafka(App):
             msg = f'sent ts_event:{event.topic} '
             msg = msg + f',message:{data}' if log_payload else msg
             logger.info(msg)
-            if hasattr(self.monitor, 'client'):
-                self.monitor.client.incr(f'stream.{topic_name}.messages.sent')
+            statsd.incr(f"counter.kafka_write.{topic_name}.success")
         except MessageSizeTooLargeError as msex:
+            statsd.incr(f"counter.kafka_write.{topic_name}.error_size")
             raise TSMessageSizeTooLargeError(
                 f"The message is bytes when serialized which is larger than"
                 f" the total memory buffer you have configured with the"
                 f" buffer_memory configuration. {msex}"
             )
         except Exception as ex:
+            statsd.incr(f"counter.kafka_write.{topic_name}.error_broker")
             raise TSKafkaSendException(f'Exception while pushing message to broker: {ex}')
 
     def get_kafka_producer(self):
@@ -281,39 +243,29 @@ class TSKafka(App):
                             load_func = schema.loads
                         else:
                             load_func = schema.load
-                        if MARSHMALLOW_2:
-                            deserialized_data, errors = load_func(ts_message)
-                            if errors:
-                                if hasattr(self.monitor, 'client'):
-                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                                error_msg = f'Inbound schema validation error for event {topic}'
-                                logging.error(error_msg, extra={'errors': errors, 'data': ts_message})
-                                raise SchemaError(error_msg, errors=errors, data=ts_message)
-                        else:
-                            try:
-                                deserialized_data = load_func(ts_message)
-                            except ValidationError as vex:
-                                if hasattr(self.monitor, 'client'):
-                                    self.monitor.client.incr(f'stream.{topic_name}.schema.errors')
-                                error_msg = f'Inbound schema validation error for event {topic}'
-                                logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
-                                raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
+
+                        try:
+                            deserialized_data = load_func(ts_message)
+                        except ValidationError as vex:
+                            statsd.incr(f"counter.kafka_read.{topic_name}.schema_error")
+                            error_msg = f'Inbound schema validation error for event {topic}'
+                            logging.error(error_msg, extra={'errors': vex.messages, 'data': ts_message})
+                            raise SchemaError(error_msg, errors=vex.messages, data=ts_message)
 
                         msg_meta = f'ts_event:{event.topic}, meta:{event_meta}'
                         msg = f'received {msg_meta}' + (f',message:{deserialized_data}' if log_payload else '')
                         logger.info(msg)
-                        yield await func(deserialized_data)
+                        with statsd.timer(f"consumer.faust.{topic_name}.time"):
+                            yield await func(deserialized_data)
                         logger.info(f'finished consumer {msg_meta}')
                     except catch_exc as ex:
-                        if hasattr(self.monitor, 'client'):
-                            self.monitor.client.incr(f'stream.{topic_name}.execution.errors')
+                        statsd.incr(f"counter.kafka_read.{topic_name}.runtime_ignored_error")
                         logging.error(ex, exc_info=ex)
                         if self.sentry:
                             sentry_sdk.capture_exception(ex)
                         yield
                     except Exception as ex:  # catch all exceptions to avoid worker failure and restart
-                        if hasattr(self.monitor, 'client'):
-                            self.monitor.client.incr(f'stream.{topic_name}.critical.errors')
+                        statsd.incr(f"counter.kafka_read.{topic_name}.runtime_critical")
                         logging.critical(ex, exc_info=ex)
                         if self.sentry:
                             sentry_sdk.capture_exception(ex)
@@ -326,8 +278,5 @@ class TSKafka(App):
 
     @classmethod
     def _compress(cls, data, schema):
-        if MARSHMALLOW_2:
-            compress_data = zlib.compress(json.dumps(data).encode())
-        else:
-            compress_data = zlib.compress(schema().dumps(data).encode())
+        compress_data = zlib.compress(schema().dumps(data).encode())
         return base64.b64encode(compress_data).decode()
