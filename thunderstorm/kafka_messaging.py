@@ -256,6 +256,7 @@ class TSKafka(App):
                         logger.info(msg)
                         with statsd.timer(f"consumer.kafka.{topic_name}.time"):
                             yield await func(deserialized_data)
+                        logger.info(f'finished {msg_meta}')
                     except catch_exc as ex:
                         statsd.incr(f"counter.kafka_read.{topic_name}.runtime_ignored_error")
                         logging.error(ex, exc_info=ex)
