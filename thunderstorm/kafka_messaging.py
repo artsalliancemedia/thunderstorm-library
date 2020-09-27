@@ -235,7 +235,6 @@ class TSKafka(App):
                     logger = logging.getLogger(self._ts_service)
                     try:
                         event_meta = current_event().message
-                        logger.info(f'received event:{topic}, meta: {event_meta}')
                         ts_message = message.pop('data') or message
                         compression = message.pop('compressed', False)
                         if compression:
@@ -255,9 +254,8 @@ class TSKafka(App):
                         msg_meta = f'ts_event:{event.topic}, meta:{event_meta}'
                         msg = f'received {msg_meta}' + (f',message:{deserialized_data}' if log_payload else '')
                         logger.info(msg)
-                        with statsd.timer(f"consumer.faust.{topic_name}.time"):
+                        with statsd.timer(f"consumer.kafka.{topic_name}.time"):
                             yield await func(deserialized_data)
-                        logger.info(f'finished consumer {msg_meta}')
                     except catch_exc as ex:
                         statsd.incr(f"counter.kafka_read.{topic_name}.runtime_ignored_error")
                         logging.error(ex, exc_info=ex)
