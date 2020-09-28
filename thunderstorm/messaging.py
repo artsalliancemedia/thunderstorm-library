@@ -47,7 +47,8 @@ def ts_shared_task(*options, **kwoptions):
 
         @wraps(func)
         def _timing_wrapper(*args, **kwargs):
-            with statsd.timer(f"consumer.celery.{func.__name__}.time"):
+            name = kwoptions.get("name", func.__name__)
+            with statsd.timer(f"consumer.celery.{name}.time"):
                 return func(*args, **kwargs)
 
         return shared_task(*options, **kwoptions)(_timing_wrapper)
@@ -114,8 +115,8 @@ def ts_task(event_name, schema, bind=False, **options):
             else:
                 logger.info('received ts_task on {}'.format(event_name))
                 ts_message.data = deserialized_data
-                # passing task_func instead of passing self - @will-norris
-                with statsd.timer(f"consumer.celery.{event_name}.time"):
+                key = event_name.replace(".", "_")
+                with statsd.timer(f"consumer.celery.{key}.time"):
                     return task_func(self, ts_message) if bind else task_func(ts_message)
 
         return shared_task(bind=bind, name=task_name, **options)(task_handler)
