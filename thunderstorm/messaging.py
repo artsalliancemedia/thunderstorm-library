@@ -47,8 +47,8 @@ def ts_shared_task(*options, **kwoptions):
 
         @wraps(func)
         def _timing_wrapper(*args, **kwargs):
-            key = kwargs.get("name", func.__name__)
-            with statsd.timer(f"consumer.celery.{key}.time"):
+            name = kwoptions.get("name", func.__name__)
+            with statsd.timer(f"consumer.celery.{name}.time"):
                 return func(*args, **kwargs)
 
         return shared_task(*options, **kwoptions)(_timing_wrapper)
