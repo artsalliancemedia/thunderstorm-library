@@ -19,20 +19,6 @@ services:
     depends_on:
       - postgres
 
-  python37:
-    image: "${REGISTRY}/artsalliancemedia/python:3.7-slim"
-    command: make install test
-    working_dir: /var/app
-    volumes:
-      - ./:/var/app
-    environment:
-      - DB_NAME=test_auth_lib_py37
-      - DB_HOST=postgres
-      - DB_USER=postgres
-      - DB_PASS=postgres
-    depends_on:
-      - postgres
-
   postgres:
     image: postgres:9.6
     environment:
