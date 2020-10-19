@@ -1,4 +1,4 @@
-FROM 886366864302.dkr.ecr.eu-west-1.amazonaws.com/artsalliancemedia/python:3.6-slim
+FROM python:3.6-buster
 
 WORKDIR /src/thunderstorm_library
 

@@ -4,7 +4,7 @@ services:
   python36:
     image: artsalliancemedia/thunderstorm-library:develop
     build:
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
       context: .
     working_dir: /var/app
 
