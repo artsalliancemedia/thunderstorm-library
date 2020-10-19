@@ -84,12 +84,12 @@ def init_app(
         def do_setup_logging(**kwargs):
             hdl = json_handler if add_json_handler else stream_handler
 
-            del celery.utils.log.task_logger.handlers[:]
+            celery.utils.log.task_logger.handlers.clear()
             celery.utils.log.task_logger.propagate = True
             celery.utils.log.task_logger.setLevel(log_level)
             celery.utils.log.task_logger.addHandler(hdl)
 
-            del celery.utils.log.worker_logger.handlers[:]
+            celery.utils.log.worker_logger.handlers.clear()
             celery.utils.log.worker_logger.propagate = True
             celery.utils.log.worker_logger.setLevel(log_level)
             celery.utils.log.worker_logger.addHandler(hdl)
