@@ -22,21 +22,13 @@ node('aam-identity-prodcd') {
     try {
         stage('Test') {
             withEnv([
-              "REGISTRY=${registry}"
+              "REGISTRY=${registry}",
+              "COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}36"
             ]) {
               sh 'docker-compose up -d'
               sh 'sleep 5'
-              parallel 'python36': {
-                withEnv(["COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}36"]) {
-                  sh "docker-compose run -e PYTHON_VERSION=36 python36 make install test"
-                  junit 'results-36.xml'
-                }
-              }, 'python37': {
-                withEnv(["COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}37"]) {
-                  sh "docker-compose run -e PYTHON_VERSION=37 python37 make install test"
-                  junit 'results-37.xml'
-                }
-              }
+              sh "docker-compose run -e PYTHON_VERSION=36 python36 make install test"
+              junit 'results-36.xml'
               sh 'docker-compose down'
             }
         }
