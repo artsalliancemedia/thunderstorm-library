@@ -90,8 +90,7 @@ def ts_stream_handler(ts_filter):
 
 def setup_ts_logger(ts_service, log_level):
     logger = logging.getLogger(ts_service)
-    logger.propagate = True
-
+    logger.propagate = False
     logger.setLevel(log_level)
     return logger
 
