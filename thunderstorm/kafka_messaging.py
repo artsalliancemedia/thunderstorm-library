@@ -84,9 +84,7 @@ class TSKafka(App):
                 log_level = 'INFO'
                 logging.warning(f'{log_level} {vex}')
 
-            if kwargs.get('init_ts_logger'):
-                setup_ts_logger(ts_service, log_level)
-
+            setup_ts_logger(ts_service, log_level)
             log_filter = KafkaRequestIDFilter()
             logger = logging.getLogger(ts_service)
             logger.addFilter(log_filter)

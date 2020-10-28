@@ -119,12 +119,8 @@ class JSONFormatter(BaseJSONFormatter):
     def _add_request_id(self, log_record, record):
         if getattr(record, 'traceId', None):
             log_record['request_id'] = record.traceId
-            # log_record.setdefault('data', {})
-            # log_record['data']['request_id'] = record.traceId
-
         return log_record
 
     def _add_timestamp(self, log_record, record):
         log_record['timestamp'] = datetime.datetime.utcnow().isoformat()
-
         return log_record
