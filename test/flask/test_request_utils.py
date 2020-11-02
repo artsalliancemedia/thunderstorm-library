@@ -7,7 +7,7 @@ from test.models import Random
 from thunderstorm.flask.exceptions import DeserializationError
 from thunderstorm.flask.request_utils import (
     get_pagination_info, paginate, get_request_filters, get_request_pagination,
-    make_paginated_response
+    make_paginated_response, sync_all_data
 )
 from thunderstorm.flask.schemas import PaginationSchema
 
@@ -189,3 +189,39 @@ def test_make_paginated_response_with_ceiling(total_records, ceiling, result, db
         'total_records': result,
         'prev_page': None
     }
+
+
+@patch('thunderstorm.flask.request_utils.request_session.get')
+def test_sync_all_data_paging_v2(mock_http):
+    # arrange
+    total = set()
+
+    def handler(item):
+        total.add(item['id'])
+
+    items = [i for i in range(19)]
+    mock_http.return_value = MagicMock(spec_set=('status_code', 'content', 'json', 'raise_for_status'))
+    mock_http.return_value.status_code = 200
+    mock_http.return_value.json.side_effect = [
+        {
+            'data': [
+                {
+                    'id': i
+                } for i in items[:10]
+            ]
+        },
+        {
+            'data': [
+                {
+                    'id': i
+                } for i in items[10:]
+            ]
+        }
+    ]
+
+    # act
+    sync_all_data('http://www.abc.abc', handler, page_size=10)
+
+    # assert
+    assert len(total) == 19
+    assert total == set(items)

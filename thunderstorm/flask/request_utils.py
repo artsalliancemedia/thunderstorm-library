@@ -258,3 +258,35 @@ def make_paginated_response_v3(query, page, page_size):
     query = query.offset(start).limit(page_size)
 
     return query, pagination_info
+
+
+def sync_all_data(url, item_handler, page_size=100, version=2):
+    page_num = 1
+    if version == 2:
+        page_num_name = 'page_num'
+        page_size_name = 'page_size'
+
+    elif version == 3:
+        page_num_name = 'page'
+        page_size_name = 'limit'
+    else:
+        raise Exception(f'version:{version} is not supported. only 2 or 3')
+
+    while True:
+        request_data = {
+            page_num_name: page_num,
+            page_size_name: page_size
+        }
+
+        resp = request_session.get(url, timeout=(5, 10), params=request_data)
+        resp.raise_for_status()
+        resp_json = resp.json()
+
+        result = resp_json.get('data')
+        result_len = len(result)
+        if result_len > 0:
+            for item in result:
+                item_handler(item)
+            page_num += 1
+        if result_len != page_size:
+            break
